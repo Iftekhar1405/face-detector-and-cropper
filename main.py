@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 import cv2
 import numpy as np
 import requests
@@ -13,14 +12,11 @@ app = FastAPI()
 # Load pre-trained face detector
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
-class CropRequest(BaseModel):
-    url: str
-
-@app.post("/crop-face")
-def crop_face_from_body(data: CropRequest):
+@app.get("/crop-face")
+def crop_face_from_url(url: str):
     try:
         # Fetch the image from URL
-        resp = requests.get(data.url, stream=True, timeout=10)
+        resp = requests.get(url, stream=True, timeout=10)
         if resp.status_code != 200:
             raise HTTPException(status_code=400, detail="Failed to fetch image from URL")
 
@@ -45,7 +41,7 @@ def crop_face_from_body(data: CropRequest):
         h = h + pad * 2
         cropped = img[y:y+h, x:x+w]
 
-        # Encode cropped image to memory
+        # Encode cropped image into memory (no temp files)
         _, buffer = cv2.imencode(".jpg", cropped)
         return StreamingResponse(io.BytesIO(buffer.tobytes()), media_type="image/jpeg")
 
@@ -53,7 +49,7 @@ def crop_face_from_body(data: CropRequest):
         raise HTTPException(status_code=500, detail=f"Face crop error: {str(e)}")
 
 
-# Entry point for Render (port binding)
+# Entry point for Render (binds to $PORT)
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))  # Render sets PORT env var
+    port = int(os.environ.get("PORT", 10000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
