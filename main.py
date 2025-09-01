@@ -10,7 +10,7 @@ app = FastAPI()
 # Load pre-trained face detector
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
-@app.get("/crop-face-from-url")
+@app.get("/crop-face")
 def crop_face_from_url(url: str):
     try:
         # Fetch the image from URL
@@ -36,7 +36,7 @@ def crop_face_from_url(url: str):
         (x, y, w, h) = faces[0]
 
         # Optional padding
-        pad = 20
+        pad = 80
         x = max(0, x - pad)
         y = max(0, y - pad)
         w = w + pad * 2
