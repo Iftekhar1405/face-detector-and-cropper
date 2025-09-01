@@ -34,7 +34,7 @@ def crop_face_from_url(url: str):
 
         # Crop the first face
         (x, y, w, h) = faces[0]
-        pad = 80
+        pad = 100
         x = max(0, x - pad)
         y = max(0, y - pad)
         w = w + pad * 2
