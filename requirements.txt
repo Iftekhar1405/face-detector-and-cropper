@@ -4,5 +4,4 @@ numpy
 opencv-python-headless
 requests
 pydantic
-io
 os
