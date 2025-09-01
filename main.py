@@ -1,53 +1,54 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 import cv2
 import numpy as np
+import requests
 import tempfile
-import zipfile
-import os
 
 app = FastAPI()
 
-@app.post("/crop-faces/")
-async def crop_faces(file: UploadFile = File(...)):
-    # Read uploaded image
-    contents = await file.read()
-    npimg = np.frombuffer(contents, np.uint8)
-    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+# Load pre-trained face detector
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
-    # Load Haar Cascade for face detection
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    faces = face_cascade.detectMultiScale(img, 1.3, 5)
+@app.get("/crop-face-from-url")
+def crop_face_from_url(url: str):
+    try:
+        # Fetch the image from URL
+        resp = requests.get(url, stream=True, timeout=10)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to fetch image from URL")
 
-    if len(faces) == 0:
-        return {"error": "No faces detected"}
+        # Convert to np array
+        img_array = np.asarray(bytearray(resp.content), dtype=np.uint8)
+        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-    # Case 1: Single face → return directly
-    if len(faces) == 1:
+        if img is None:
+            raise HTTPException(status_code=400, detail="Invalid image data")
+
+        # Detect faces
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
+
+        if len(faces) == 0:
+            raise HTTPException(status_code=404, detail="No faces detected")
+
+        # Crop the first face (you can loop for multiple if needed)
         (x, y, w, h) = faces[0]
 
-        padding = 80  # adjust this value as needed
+        # Optional padding
+        pad = 20
+        x = max(0, x - pad)
+        y = max(0, y - pad)
+        w = w + pad * 2
+        h = h + pad * 2
 
-        # Apply padding but keep within image bounds
-        x1 = max(0, x - padding)
-        y1 = max(0, y - padding)
-        x2 = min(img.shape[1], x + w + padding)
-        y2 = min(img.shape[0], y + h + padding)
+        cropped = img[y:y+h, x:x+w]
 
-        face = img[y1:y2, x1:x2]
+        # Save temp file
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        cv2.imwrite(tmp_file.name, cropped)
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
-            cv2.imwrite(tmpfile.name, face)
-            return FileResponse(tmpfile.name, media_type="image/png", filename="face.png")
+        return FileResponse(tmp_file.name, media_type="image/jpeg")
 
-    # Case 2: Multiple faces → return ZIP
-    with tempfile.TemporaryDirectory() as tmpdir:
-        zip_path = os.path.join(tmpdir, "cropped_faces.zip")
-        with zipfile.ZipFile(zip_path, "w") as zipf:
-            for i, (x, y, w, h) in enumerate(faces):
-                face = img[y:y+h, x:x+w]
-                face_path = os.path.join(tmpdir, f"face_{i+1}.png")
-                cv2.imwrite(face_path, face)
-                zipf.write(face_path, f"face_{i+1}.png")
-
-        return FileResponse(zip_path, media_type="application/zip", filename="cropped_faces.zip")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
