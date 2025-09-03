@@ -22,12 +22,17 @@ def crop_face_from_url(url: str):
 
         # Convert to np array
         img_array = np.asarray(bytearray(resp.content), dtype=np.uint8)
-        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+        # Load image with alpha channel if available
+        img = cv2.imdecode(img_array, cv2.IMREAD_UNCHANGED)
         if img is None:
             raise HTTPException(status_code=400, detail="Invalid image data")
 
-        # Detect faces
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # If the image has alpha channel (4 channels), separate color & alpha
+        has_alpha = img.shape[2] == 4 if len(img.shape) == 3 else False
+
+        # Detect faces (use only BGR/Gray for detection)
+        gray = cv2.cvtColor(img[:, :, :3], cv2.COLOR_BGR2GRAY) if has_alpha else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5)
         if len(faces) == 0:
             raise HTTPException(status_code=404, detail="No faces detected")
@@ -41,9 +46,12 @@ def crop_face_from_url(url: str):
         h = h + pad * 2
         cropped = img[y:y+h, x:x+w]
 
-        # Encode cropped image into memory (no temp files)
-        _, buffer = cv2.imencode(".jpg", cropped)
-        return StreamingResponse(io.BytesIO(buffer.tobytes()), media_type="image/jpeg")
+        # Encode cropped image → PNG (preserves transparency)
+        success, buffer = cv2.imencode(".png", cropped)
+        if not success:
+            raise HTTPException(status_code=500, detail="Encoding error")
+
+        return StreamingResponse(io.BytesIO(buffer.tobytes()), media_type="image/png")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Face crop error: {str(e)}")
